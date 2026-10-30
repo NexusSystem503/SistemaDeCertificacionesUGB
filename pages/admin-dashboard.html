@@ -83,6 +83,43 @@
         .btn-danger:hover {
             background: rgba(248, 113, 113, 0.4);
         }
+
+        /* Estilos Calificador Manual Directo */
+        .inline-grade-box {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 3px 8px;
+            border-radius: 8px;
+            border: 1px solid var(--glass-border);
+            white-space: nowrap;
+        }
+        .inline-grade-input {
+            width: 60px;
+            padding: 3px 6px;
+            font-size: 0.85rem;
+            text-align: center;
+            font-weight: 700;
+            height: 28px;
+            margin: 0;
+            background: rgba(0, 0, 0, 0.35);
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+        .inline-grade-input:focus {
+            border-color: #3b82f6;
+            box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+            background: rgba(0, 0, 0, 0.5);
+        }
+        .badge-modified {
+            background: rgba(139, 92, 246, 0.25) !important;
+            color: #c4b5fd !important;
+            border: 1px solid rgba(167, 139, 250, 0.4) !important;
+        }
     </style>
 </head>
 
@@ -529,11 +566,11 @@
                         <table class="data-table">
                             <thead>
                                 <tr>
-                                    <th>Fecha</th>
+                                    <th>Fecha / Intento</th>
                                     <th>Docente</th>
                                     <th>Módulo</th>
-                                    <th>Estado</th>
-                                    <th>Acciones</th>
+                                    <th>Estado (Calificación)</th>
+                                    <th style="text-align:center;">Acciones</th>
                                 </tr>
                             </thead>
                             <tbody id="tablePendingGrades">
@@ -1615,20 +1652,65 @@
                 tbody.innerHTML = '';
 
                 if (!error && pending && pending.length > 0) {
+                    const modifiedAttempts = new Set(JSON.parse(localStorage.getItem('modified_attempts') || '[]'));
+
                     pending.forEach(a => {
                         const aiWarning = a.ai_flag ? `<br><span style="color: #f87171; font-size: 0.8rem; background: rgba(248,113,113,0.1); padding: 2px 6px; border-radius: 4px;">⚠️ Posible uso de IA</span>` : '';
                         const nombre = a.user ? a.user.nombre : 'Usuario';
-                        const statusTag = a.status === 'calificado' ? `<span style="color:#4ade80;">Calificado (${a.grade || 0}/10)</span>` : `<span style="color:#fbbf24;">Pendiente</span>`;
+                        const isModified = modifiedAttempts.has(a.id);
+                        
+                        let statusTag = '';
+                        if (a.status === 'calificado') {
+                            const isPassed = (a.grade || 0) >= 6;
+                            if (isModified) {
+                                statusTag = `<span id="statusTag_${a.id}" class="status-badge badge-modified" style="font-size: 0.75rem; padding: 3px 8px; font-weight: 600;">✏️ Modificada (${a.grade ?? 0}/10)</span>`;
+                            } else {
+                                statusTag = `<span id="statusTag_${a.id}" class="status-badge ${isPassed ? 'status-aprobado' : 'status-rechazado'}" style="font-size: 0.75rem; padding: 3px 8px; font-weight: 600;">Calificado (${a.grade ?? 0}/10)</span>`;
+                            }
+                        } else {
+                            statusTag = `<span id="statusTag_${a.id}" class="status-badge status-proceso" style="font-size: 0.75rem; padding: 3px 8px; font-weight: 600;">Pendiente</span>`;
+                        }
+
+                        const currentGradeVal = (a.grade !== null && a.grade !== undefined) ? a.grade : '';
                         const btnText = a.status === 'calificado' ? 'Modificar Nota' : 'Revisar y Calificar';
                         const btnColor = a.status === 'calificado' ? '#8b5cf6' : '#3b82f6';
+                        const fechaStr = a.created_at ? new Date(a.created_at).toLocaleDateString() : '';
 
                         tbody.innerHTML += `
                             <tr>
-                                <td>Intento #${a.attempts}</td>
+                                <td>
+                                    <strong>Intento #${a.attempts || 1}</strong>
+                                    ${fechaStr ? `<br><span style="color:var(--text-secondary); font-size:0.75rem;">${fechaStr}</span>` : ''}
+                                </td>
                                 <td>${nombre} ${aiWarning}</td>
                                 <td>Módulo ${a.module_id}</td>
-                                <td>${statusTag}</td>
-                                <td style="display: flex; gap: 5px; justify-content: center;">
+                                <td>
+                                    <div style="display: flex; flex-direction: column; gap: 6px;">
+                                        <div>${statusTag}</div>
+                                        <div class="inline-grade-box">
+                                            <input type="number" 
+                                                   id="directGrade_${a.id}" 
+                                                   min="0" 
+                                                   max="10" 
+                                                   step="0.1" 
+                                                   value="${currentGradeVal}" 
+                                                   placeholder="0-10" 
+                                                   class="inline-grade-input" 
+                                                   title="Modificar o calificar nota directamente (0-10). Presiona Enter o el botón Guardar"
+                                                   onkeydown="if(event.key === 'Enter'){ event.preventDefault(); saveDirectGrade(${a.id}, '${a.user_id}', ${a.module_id}); }">
+                                            <span style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 500;">/ 10</span>
+                                            <button type="button" 
+                                                    class="action-btn" 
+                                                    id="btnDirectGrade_${a.id}"
+                                                    style="background: #10b981; padding: 3px 8px; font-size: 0.75rem; height: 28px; display: inline-flex; align-items: center; gap: 4px; border-radius: 6px; border: none; font-weight: 600; cursor: pointer; margin: 0;" 
+                                                    onclick="saveDirectGrade(${a.id}, '${a.user_id}', ${a.module_id})" 
+                                                    title="Guardar calificación directamente en el sistema">
+                                                💾 Guardar
+                                            </button>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td style="display: flex; gap: 5px; justify-content: center; align-items: center;">
                                     <button class="action-btn" style="background: ${btnColor};" onclick="openGradeModal(${a.id}, '${nombre}')">${btnText}</button>
                                     <button class="action-btn btn-danger" onclick="deleteAttempt(${a.id}, '${a.user_id}', ${a.module_id})">Eliminar</button>
                                 </td>
@@ -1641,11 +1723,139 @@
             } catch (e) { console.error(e); }
         }
 
+        async function saveDirectGrade(attemptId, userId, moduleId) {
+            const input = document.getElementById(`directGrade_${attemptId}`);
+            const btn = document.getElementById(`btnDirectGrade_${attemptId}`);
+            const statusTag = document.getElementById(`statusTag_${attemptId}`);
+
+            if (!input) return;
+            const val = input.value.trim();
+            if (val === '') {
+                await glassAlert('Por favor ingresa una nota entre 0 y 10.');
+                input.focus();
+                return;
+            }
+
+            let newGrade = parseFloat(val);
+            if (isNaN(newGrade) || newGrade < 0 || newGrade > 10) {
+                await glassAlert('La nota debe ser un número válido entre 0 y 10.');
+                input.focus();
+                return;
+            }
+
+            // Redondear a 1 decimal
+            newGrade = Math.round(newGrade * 10) / 10;
+            input.value = newGrade;
+
+            const isPassed = newGrade >= 6.0;
+
+            const originalBtnHtml = btn ? btn.innerHTML : '💾 Guardar';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '⏳ Guardando...';
+                btn.style.opacity = '0.7';
+            }
+
+            try {
+                // Actualizar intento directamente en exam_attempts
+                const { data: attemptInfo, error: errAttempt } = await supabase.from('exam_attempts').update({
+                    grade: newGrade,
+                    status: 'calificado',
+                    is_passed: isPassed
+                }).eq('id', attemptId).select().single();
+
+                if (errAttempt) {
+                    console.error("Error al actualizar intento:", errAttempt);
+                    await glassAlert('Error al guardar en la base de datos: ' + (errAttempt.message || ''));
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = originalBtnHtml;
+                        btn.style.opacity = '1';
+                    }
+                    return;
+                }
+
+                // Actualizar progreso del módulo y progreso general
+                const { data: progress } = await supabase.from('progress').select('*').eq('user_id', userId).maybeSingle();
+                if (progress) {
+                    let updates = {};
+                    const modProg = isPassed ? 100 : 0;
+                    updates[`module_${moduleId}_progress`] = modProg;
+                    const newTotal = (
+                        (moduleId == 1 ? modProg : progress.module_1_progress) +
+                        (moduleId == 2 ? modProg : progress.module_2_progress) +
+                        (moduleId == 3 ? modProg : progress.module_3_progress) +
+                        (moduleId == 4 ? modProg : progress.module_4_progress)
+                    ) / 4;
+                    updates.total_progress = newTotal;
+                    if (newTotal < 100) updates.is_certified = false;
+
+                    await supabase.from('progress').update(updates).eq('user_id', userId);
+                } else {
+                    let newProg = { user_id: userId, total_progress: isPassed ? 25 : 0 };
+                    newProg[`module_${moduleId}_progress`] = isPassed ? 100 : 0;
+                    await supabase.from('progress').insert([newProg]);
+                }
+
+                // Registrar en memoria local que este intento fue modificado
+                const modifiedAttempts = new Set(JSON.parse(localStorage.getItem('modified_attempts') || '[]'));
+                modifiedAttempts.add(attemptId);
+                localStorage.setItem('modified_attempts', JSON.stringify([...modifiedAttempts]));
+
+                // Actualizar visualmente la columna de estado de inmediato
+                if (statusTag) {
+                    statusTag.className = 'status-badge badge-modified';
+                    statusTag.innerHTML = `✏️ Modificada (${newGrade}/10)`;
+                }
+
+                // Actualizar botón de la columna de acciones en la misma fila si correspondía
+                const row = input.closest('tr');
+                if (row) {
+                    const modalBtn = row.querySelector('.action-btn[onclick^="openGradeModal"]');
+                    if (modalBtn) {
+                        modalBtn.innerText = 'Modificar Nota';
+                        modalBtn.style.background = '#8b5cf6';
+                    }
+                }
+
+                // Feedback visual en el botón
+                if (btn) {
+                    btn.innerHTML = '✅ Guardado';
+                    btn.style.background = '#059669';
+                    btn.style.opacity = '1';
+                    setTimeout(() => {
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.innerHTML = '💾 Guardar';
+                            btn.style.background = '#10b981';
+                        }
+                    }, 2000);
+                }
+
+                // Refrescar estadísticas generales del dashboard
+                if (typeof loadStats === 'function') loadStats();
+
+            } catch (e) {
+                console.error("Error al calificar directamente:", e);
+                await glassAlert('Error de conexión al actualizar la calificación.');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalBtnHtml;
+                    btn.style.opacity = '1';
+                }
+            }
+        }
+        window.saveDirectGrade = saveDirectGrade;
+
         async function deleteAttempt(attemptId, userId, moduleId) {
             if (!await glassConfirm("¿Seguro que deseas eliminar este examen? El intento, las respuestas y el progreso de este módulo serán reseteados a 0 para el docente.")) return;
             try {
                 const { error } = await supabase.from('exam_attempts').delete().eq('id', attemptId);
                 if (!error) {
+                    const modifiedAttempts = new Set(JSON.parse(localStorage.getItem('modified_attempts') || '[]'));
+                    modifiedAttempts.delete(attemptId);
+                    localStorage.setItem('modified_attempts', JSON.stringify([...modifiedAttempts]));
+
                     const { data: progress } = await supabase.from('progress').select('*').eq('user_id', userId).single();
                     if (progress) {
                         let updates = {};
@@ -1786,6 +1996,10 @@
                     }
 
                     if (!error) {
+                        const modifiedAttempts = new Set(JSON.parse(localStorage.getItem('modified_attempts') || '[]'));
+                        modifiedAttempts.add(parseInt(attemptId));
+                        localStorage.setItem('modified_attempts', JSON.stringify([...modifiedAttempts]));
+
                         await glassAlert('Calificación guardada exitosamente');
                         document.getElementById('gradeModal').style.display = 'none';
                         loadPendingGrades();
